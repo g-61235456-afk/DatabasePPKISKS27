@@ -12,14 +12,40 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      ANDROID_HOME: /usr/local/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/android/sdk
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Extract Android project
         run: unzip -q DatabasePPKISKS27_APK_Project_GitHubActions.zip
+
+      - name: Fix class deletion persistence and safety
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          root = Path("DatabasePPKISKS27_APK_Project")
+          files = list(root.rglob("*.html")) + list(root.rglob("*.js"))
+          load_old = re.compile(r"function loadKelas\(\)\s*\{.*?\}", re.S)
+          delete_old = re.compile(r"function padamKelas\(i\)\s*\{.*?\}", re.S)
+          load_new = """function loadKelas(){ try{ var raw=localStorage.getItem('DB27_k'); if(raw!==null){ var k=JSON.parse(raw); if(Array.isArray(k)) return k; } }catch(e){} return [{nama:'PPKI 1',guru:''},{nama:'PPKI 2',guru:''},{nama:'1A',guru:''},{nama:'1B',guru:''},{nama:'2A',guru:''},{nama:'2B',guru:''},{nama:'3A',guru:''},{nama:'3B',guru:''},{nama:'4A',guru:''},{nama:'4B',guru:''},{nama:'5A',guru:''},{nama:'5B',guru:''},{nama:'6A',guru:''},{nama:'6B',guru:''}]; }"""
+          delete_new = """function padamKelas(i){ var nama=kelasData[i].nama; var adaMurid=data.some(function(m){return m.kelas===nama;}); if(adaMurid){ alert('Kelas ini masih mempunyai murid. Pindahkan atau keluarkan murid dahulu sebelum memadam kelas.'); return; } if(confirm('Padam '+nama+'?')){ kelasData.splice(i,1); saveK(); tunjukKelas(); tunjuk(); } }"""
+          changed=False
+          for f in files:
+            s=f.read_text(encoding="utf-8", errors="ignore")
+            if "function loadKelas()" in s and "function padamKelas(i)" in s:
+              s2,n1=load_old.subn(load_new,s,count=1)
+              s3,n2=delete_old.subn(delete_new,s2,count=1)
+              if n1!=1 or n2!=1:
+                raise SystemExit(f"Could not patch expected functions in {f}: load={n1}, delete={n2}")
+              f.write_text(s3,encoding="utf-8")
+              print(f"Patched {f}")
+              changed=True
+          if not changed:
+            raise SystemExit("Could not locate HTML/JS containing both loadKelas and padamKelas.")
+          PY
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
